@@ -1,0 +1,241 @@
+## Importar las librerías necesarias para hacer el análisis
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from statsmodels.tsa.arima.model import ARIMA
+from sklearn.metrics import mean_squared_error
+from pmdarima import auto_arima
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tools.eval_measures import rmse
+from statsmodels.graphics.tsaplots import plot_acf
+from random import random
+import matplotlib.ticker as plticker
+from pmdarima import auto_arima
+
+## Se tiene una base de datos que contiene información sobre la cantidad y el tipo de homicidio cometido desde el año 1997
+## hasta el 2017 de todo el país de México, dividido por Entidad Federativa
+
+## Para este caso sólo interesa analizar los homicidios cometidos en el estado de Veracruz en el periodo 2008-2017
+## Se llevó a cabo la limpieza correspondiente, eliminando todas las observaciones que no pertenecieran a Veracruz y al periodo
+## de interés
+
+
+d = pd.read_excel('Delitos.xlsx')
+d.head()
+
+## Seleccionar sólo las observaciones referentes al Estado de Veracruz
+datos = d.query('Entidad == "VERACRUZ"')
+#datos.head()
+## Exportar
+#datos.to_excel('Veracruz_Delitos.xlsx', index = False)
+## Seleccionar sólo los homicidios
+hom = pd.read_excel('Veracruz_Delitos.xlsx')
+dhom = hom.query('Modalidad == "HOMICIDIOS"')
+#dhom.head()
+## Exportar
+#dhom.to_excel('Homicidios_Veracruz.xlsx', index = False)
+
+datos = pd.read_excel('Homicidios_Veracruz.xlsx', sheet_name = 'Datos')
+datos.head()
+## Seleccionar sólo los registros del 2008 al 2017
+d2 = datos.query('Año > 2007')
+d2
+## Crear una DataFrame con la cantidad de Homicidios cometidos por mes en el periodo 2008-2017
+data1 = pd.DataFrame({
+    'Mes':[
+        'Enero',
+        'Febrero',
+        'Marzo',
+        'Abril',
+        'Mayo',
+        'Junio',
+        'Julio',
+        'Agosto',
+        'Septiembre',
+        'Octubre',
+        'Noviembre',
+        'Diciembre'
+    ],
+    'Homicidios': [
+        d2['Enero'].sum(),
+        d2['Febrero'].sum(),
+        d2['Marzo'].sum(),
+        d2['Abril'].sum(),
+        d2['Mayo'].sum(),
+        d2['Junio'].sum(),
+        d2['Julio'].sum(),
+        d2['Agosto'].sum(),
+        d2['Septiembre'].sum(),
+        d2['Octubre'].sum(),
+        d2['Noviembre'].sum(),
+        d2['Diciembre'].sum(),
+    ]
+}, columns = ['Mes', 'Homicidios'])
+        
+data1
+
+## Cambiar el orden de la data
+data2 = data1.iloc[::-1]
+## Graficar los meses que presentaron mayor cantidad de homicidios
+data2.plot(kind = 'barh', x = 'Mes', y = 'Homicidios', color = '#378CE7', width = 0.5, label = '')
+plt.xlabel('Cantidad de Homicidios')
+plt.ylabel('Mes')
+plt.title('Cantidad de Homicidios por Mes')
+plt.show()
+
+datos = pd.read_excel('Homicidios_Veracruz.xlsx',sheet_name = 'Registros')
+datos.head()
+
+## Convertir a formato de fecha la variable "Fecha"
+datos['Fecha'] = pd.to_datetime(datos['Fecha'])
+
+fecha = datos['Fecha']
+cantidad = datos['Cantidad']
+datos.head()
+
+## Visualización de la Serie de Tiempo
+fig, ax = plt.subplots(figsize = (8,6))
+ax.plot(fecha, cantidad)
+plt.title('Frecuencia de Homicidios en Veracruz')
+plt.xlabel('Año')
+plt.ylabel('Cantidad de Homicidios')
+plt.grid(True)
+plt.show()
+
+# Personalización de parámetros para los gráficos
+plt.rcParams["figure.figsize"] = [16, 5]
+plt.rcParams["axes.spines.top"] = False
+plt.rcParams["axes.spines.right"] = False
+plt.rcParams["axes.spines.bottom"] = False
+plt.rcParams["axes.spines.left"] = False
+plt.rcParams["lines.linewidth"] = 2
+plt.rcParams["axes.labelsize"] = 20
+plt.rcParams["xtick.labelsize"] = 15
+plt.rcParams["ytick.labelsize"] = 15
+plt.rcParams["lines.markerfacecolor"] = "purple"
+plt.rcParams["lines.markeredgecolor"] = "purple"
+plt.rcParams["lines.markersize"] = 6
+plt.rcParams["patch.facecolor"] = "purple"
+plt.rcParams["patch.edgecolor"] = "purple"
+
+datos2 = datos[["Fecha", "Cantidad"]].set_index(["Fecha"])
+
+# Serie de tiempo
+fig, ax = plt.subplots()
+ax.xaxis.set_major_locator(plticker.MultipleLocator(base=10))
+ax.plot(datos2.index, datos2["Cantidad"], 
+        color="pink", marker="o", linestyle="-")
+ax.bar(datos2.index, datos2["Cantidad"], 
+       width=0.1, color="pink", alpha=0.7)
+ax.set_ylabel("Cantidad de Homicidios")
+plt.show()
+
+## Gráficos de retardo
+for retraso in range(1, 15):
+    pd.plotting.lag_plot(datos2["Cantidad"], lag = retraso)
+    plt.show()
+
+## Función de autocorrelación
+plot_acf(datos2, lags = 99, alpha = None)
+plt.ylabel('Coeficiente de Autocorrelación')
+plt.title('')
+plt.xlabel('Retardo')
+plt.show()
+
+m = auto_arima(datos['Cantidad'], seasonal = True, m = 12, trace = True)
+m
+m.summary()
+
+## Dividir los datos en entrenamiento y prueba
+train_data = datos[:len(datos)-12]
+test_data = datos[len(datos)-12:]
+test = test_data.copy()
+
+modelo_arima = SARIMAX(train_data['Cantidad'], order = (1,1,0), seasonal_order = (1,0,0,12))
+resultado_arima = modelo_arima.fit()
+resultado_arima.summary()
+
+## Predicciones
+pred_arima = resultado_arima.predict(start = len(train_data), end = len(datos)-1, typ = 'levels').rename('Predicciones ARIMA')
+pred_arima
+
+test_data['Cantidad'].plot(figsize = (16,5), legend = True)
+pred_arima.plot(legend = True);
+plt.title('Modelo ARIMA', fontsize = 15)
+
+error_rmse_arima = rmse(test_data['Cantidad'], pred_arima)
+error_mse_arima = error_rmse_arima ** 2
+mean_value = datos['Cantidad'].mean()
+
+print(f'MSE Error: {error_mse_arima}\nRMSE Error: {error_rmse_arima}\nMedia: {mean_value}')
+
+test_data['Predicciones ARIMA'] = pred_arima
+test_data
+## Generar pronósticos
+n_predicciones = 12
+pronosticos, intervalo_confianza = m.predict(n_periods = n_predicciones, return_conf_int = True)
+print(pronosticos, intervalo_confianza)
+# Crea un DataFrame con las fechas de pronóstico
+fechas_prediccion = pd.date_range(start=datos.index[-1], periods=n_predicciones + 1, freq='M')[1:]
+predicciones_df = pd.DataFrame({'Fecha': fechas_prediccion, 'Pronóstico': pronosticos})
+predicciones_df.info()
+
+d = pd.read_excel('IDEFC_NM_feb24.xlsx')
+
+## Seleccionar sólo las observaciones referentes al Edo. de Veracruz
+datos = d.query('Entidad == "Veracruz"')
+## Seleccionar sólo observaciones de tipo "Homicidio"
+datos2 = datos.query('Tipo_de_delito == "Homicidio"')
+## Exportar los datos a un archivo de tipo Excel
+#datos2.to_excel('Homicidios_2018.xlsx', index = False)
+## Obtener la hoja del archivo con los registros de interés
+d1 = pd.read_excel('Homicidios_2018.xlsx', sheet_name = 'Registros')
+d1.head()
+## Tomar los registros reales referentes a los años 2017 y 2018 para hacer la comparación
+Reg = d1.iloc[108:133,]
+Reg.head()
+## Tomar los registros para el año 2017 y 2018, los valores reales para el 2017 y el pronóstico de nuestro modelo para el 2018
+d2 = pd.read_excel('Homicidios_2018.xlsx', sheet_name = 'Pronostico')
+Pron = d2.iloc[108:133,]
+Pron.head()
+Reg2 = Reg[["Fecha", "Cantidad"]].set_index(["Fecha"])
+
+# Serie de tiempo
+fig, ax = plt.subplots()
+ax.xaxis.set_major_locator(plticker.MultipleLocator(base=10))
+ax.plot(Reg2.index, Reg2["Cantidad"], 
+        color="pink", marker="o", linestyle="-")
+ax.bar(Reg2.index, Reg2["Cantidad"], 
+       width=0.1, color="pink", alpha=0.7)
+ax.set_ylabel("Cantidad de Homicidios")
+ax.set_xlabel('Fecha')
+plt.show()
+Pron2 = Pron[["Fecha", "Cantidad"]].set_index(["Fecha"])
+
+# Serie de tiempo
+fig, ax = plt.subplots()
+ax.xaxis.set_major_locator(plticker.MultipleLocator(base=10))
+ax.plot(Pron2.index, Pron2["Cantidad"], 
+        color="pink", marker="o", linestyle="-")
+ax.bar(Pron2.index, Pron2["Cantidad"], 
+       width=0.1, color="pink", alpha=0.7)
+ax.set_ylabel("Cantidad de Homicidios")
+ax.set_xlabel('Fecha')
+plt.show()
+Pronostico = Pron['Cantidad']
+Pronostico
+Reg['Pronosticos'] = Pronostico
+Reg.head()
+plt.plot( 'Fecha', 'Cantidad', data=Reg, marker='o', markerfacecolor='blue', markersize=12, color='skyblue', linewidth=4)
+plt.plot( 'Fecha', 'Pronosticos', data=Reg, marker='', color='olive', linewidth=2)
+plt.xlabel('2017                                                   2018')
+plt.ylabel('Homicidios')
+marcas = ['']
+plt.xticks('Fecha', marcas)
+
+# show legend
+plt.legend()
+
+# show graph
+plt.show()
